@@ -1,0 +1,172 @@
+---
+title: "Documentation on the X+Y classifier"
+author: "Antonio"
+output: html_document
+---
+
+# Summary
+This document illustrates the methods to build and use the classifier.
+
+### Profile codes
+Each integration profile is coded as a vector of ternary values 0, -1, +1. Each ternary value corresponds to the outcome of a pairwise comparison among the conditions: 0, X, Y, X+Y, and ADD. ADD is the additivity value corresponding to the individual effects of X and Y. The codes corresponding to the different profiles are in the file 
+*profile_codes_v2.txt*. Let's see how it works.
+
+```{r}
+PROFCODES = read.table("profile_codes_v2.txt",header = TRUE,sep = "\t")
+PROFCODES[3,1:10]
+```
+
+<div style="width:800px; height=700px">
+![](example_1.png)
+</div>
+
+Consider the above row, corresponding to profile index 3. The first columns ADD.0 corresponds to the comparison between ADD and 0. The value of 0 means that, for this profile, the addivity line (ADD) and the control (0) are the same. The fourth column means that the expression level at X+Y is larger than the control (see Figure 1). 
+
+For the above profile, all the comparisons involving the additive level
+are redundant. However, there are cases in which two profiles can only be discriminated by including comparisons with the additive level. For example, let's consider the following two profiles:
+```{r results='hide', message=FALSE, warning=FALSE}
+#par(mfrow = c(1, 2))
+source("setPowerPointStyle.R")
+setPowerPointStyle()
+X1=c(4,1,5,4)
+X2=c(4,3,6,4)
+add1=X1[1]+(X1[2]-X1[1])+(X1[3]-X1[1])
+add2=X2[1]+(X2[2]-X2[1])+(X2[3]-X2[1])
+
+barplot(X1,axes=FALSE)
+abline(h=add1,col="red")
+barplot(X2,axes=FALSE)
+abline(h=add2,col="red")
+```
+
+
+### Simulating an integration profile
+The profiles described above are abstract, qualitative possibilities. Let's say we want to generate numerical values that satisfy the inequalities corresponding to a given profile. This can be done using the code below.
+
+#### Simulating mean expression for a given integration profile
+```{r results='hide', message=FALSE, warning=FALSE}
+load("constraints_vector")
+source("compute_profile_means.R")
+source("compute_minimum_delta.R")
+source("setPowerPointStyle.R")
+setPowerPointStyle()
+
+prof_index=19 #index of profile to be simulated
+ntimes=5 #n. of simulations
+exp_min=2 #min range of expression value
+exp_max=16 #max range of expression value
+min_delta=0.5 #signal (minimum difference in expression between any two comparisons)
+x=compute_profile_means(PROFCODES,prof_index,ntimes,exp_min,
+                        exp_max,constraints_vector,min_delta)[,1:4]
+colnames(x)=c("0","X","Y","X+Y")
+head(x[,1:4])
+barplot(x[1,],ylab='expression')
+add=x[1,1]+(x[1,2]-x[1,1])+(x[1,3]-x[1,1])
+abline(h=add,col="red")
+```
+
+
+
+#### Simulating random samples for a given inegration profile
+After computing the means for a given profile, we can generate random samples resembling real data. We assume that real data come from normal distributions centered around the means computed above. The standard deviation is passed as a parameter, so it is possible to simulate  arbitrary noise levels.
+
+```{r results='hide', message=FALSE, warning=FALSE}
+source("simulate_from_means.R")
+source("setPowerPointStyle.R")
+setPowerPointStyle()
+
+samples=4
+noise_level=1
+simulated_values=simulate_from_means(x[1,],prof_index,samples,
+                                     noise_level,exp_min,exp_max)
+
+design=factor(c(rep("0",samples),rep("X",samples),
+                rep("Y",samples),rep("Y+X",samples)))
+
+names(simulated_values)=c(rep('0',samples),rep('X',samples),
+                          rep('Y',samples),rep('Y+X',samples))
+
+simulated_values
+boxplot(simulated_values~design,ylab='',
+        outline=FALSE,col='gray',frame=F,axes=FALSE,medcol="white")
+stripchart(simulated_values ~ design, vertical = TRUE, 
+    method = "jitter", add = TRUE, pch = 20, col = 'black',cex=1.5)
+
+```
+
+An example with more noise.
+```{r results='hide', message=FALSE, warning=FALSE}
+source("setPowerPointStyle.R")
+setPowerPointStyle()
+
+noise_level=2
+source("simulate_from_means.R")
+simulated_values=simulate_from_means(x[1,],prof_index,samples,
+                                     noise_level,exp_min,exp_max)
+
+boxplot(simulated_values~design,ylab='',
+        outline=FALSE,col='gray',frame=F,axes=FALSE,medcol="white")
+stripchart(simulated_values ~ design, vertical = TRUE, 
+    method = "jitter", add = TRUE, pch = 20, col = 'black',cex=1.5)
+
+```
+
+### Computing a vector of statistical features for a given simulated or experimental profile
+Let's assume we have an integration profile in the form of N replicates for each of the conditions 0,X, Y, X+Y. We want to derive a set of statistical features, which will be used as predictors of the true profile in the automatic classifier. Such features consist of the Bliss index, the mean expression values in 0,X, Y, X+Y, and the p-values for all possible pairwise tests (one-tailed, two-tailed, t-test, Wilkoxon). In total, the are 75 variables. These can be computed with the function *match11* as shown below. 
+```{r results='hide', message=FALSE, warning=FALSE}
+source("setPowerPointStyle.R")
+source("match11.R")
+
+profile.features=match11(simulated_values)
+length(profile.features)
+head(profile.features,10)
+```
+
+
+Predict class with random forests
+```{r results='hide', message=FALSE, warning=FALSE}
+#library(caret)
+#library(randomForest) 
+#load("rf_model")
+#source("setPowerPointStyle.R")
+#predict(rf_model,newdata = t(data.frame(profile.features)), type = "prob")
+```
+
+
+
+```{r results='hide', message=FALSE, warning=FALSE}
+load("constraints_vector")
+source("compute_profile_means.R")
+source("compute_minimum_delta.R")
+source("setPowerPointStyle.R")
+
+ntimes=10 #n. of simulations
+exp_min=2 #min range of expression value
+exp_max=16 #max range of expression value
+min_delta=0.5 #signal (minimum difference in expression between any two comparisons)
+colnames(x)=c("0","X","Y","X+Y")
+
+for (k in 1:123){
+  prof_index=k 
+  x=compute_profile_means(PROFCODES,prof_index,ntimes,exp_min,
+                          exp_max,constraints_vector,min_delta)[,1:4]
+  
+  add=x[1,1]+(x[1,2]-x[1,1])+(x[1,3]-x[1,1])
+  if (add<exp_min) add=0.1
+  if (add>exp_max) add=max(x[1,])+1.5
+  
+#  png(file = paste(paste("profile",prof_index,sep="_"),'.png',sep=""),
+#      width = 400, height = 300)
+  
+  setPowerPointStyle()
+  barplot(x[1,],ylab='',yaxt='n', ann=FALSE,col='black',main=paste('Profile',prof_index),ylim=c(0,max(x[1,])+1.6))
+  abline(h=add,col="magenta",lwd=3)
+#  dev.off()
+}
+
+```
+
+
+
+
+
